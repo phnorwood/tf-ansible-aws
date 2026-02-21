@@ -1,0 +1,19 @@
+---
+# Run after `terraform apply` has generated ansible/inventory/hosts.ini
+#
+# Usage:
+#   ansible-playbook playbooks/configure_ssh.yml
+#
+# The inventory vars managed_user and managed_user_public_key are written
+# by Terraform's local_file resource, so no extra-vars are required.
+
+- name: Harden SSH and create key-only user
+  hosts: managed
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: ssh_hardening
+      vars:
+        managed_user: "{{ hostvars[inventory_hostname]['managed_user'] }}"
+        managed_user_public_key: "{{ hostvars[inventory_hostname]['managed_user_public_key'] }}"

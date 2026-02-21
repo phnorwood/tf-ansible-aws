@@ -1,0 +1,8 @@
+---
+# Defaults — override in inventory vars or playbook vars
+
+# User to create for SSH access
+managed_user: deploy
+
+# Public key for the managed user (set via inventory or extra-vars)
+managed_user_public_key: ""

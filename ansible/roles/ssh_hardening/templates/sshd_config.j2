@@ -1,0 +1,53 @@
+# Managed by Ansible — do not edit manually
+# /etc/ssh/sshd_config
+
+# Network
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Host keys
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Authentication
+LoginGraceTime 30
+PermitRootLogin no
+StrictModes yes
+MaxAuthTries 4
+MaxSessions 4
+
+# Key-based auth only
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+
+# Disable ALL password-based authentication methods
+PasswordAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+
+# Disable unused auth methods
+HostbasedAuthentication no
+IgnoreUserKnownHosts yes
+IgnoreRhosts yes
+
+# PAM (keep enabled for account/session; auth is bypassed by the above)
+UsePAM yes
+
+# Forwarding — disabled unless needed
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitTunnel no
+
+# Session settings
+PrintMotd no
+AcceptEnv LANG LC_*
+
+# SFTP subsystem
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Restrict logins to the managed user and ec2-user (for emergency access)
+AllowUsers {{ managed_user }} ec2-user

@@ -1,0 +1,13 @@
+# Terraform state & secrets
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/*.tfplan
+
+# Ansible generated inventory (written by Terraform)
+ansible/inventory/hosts.ini
+
+# OS
+.DS_Store
