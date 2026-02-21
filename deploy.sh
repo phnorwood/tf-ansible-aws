@@ -28,13 +28,13 @@ if [[ ! -f "$TFVARS" ]]; then
   echo "  A starter file has been copied to:"
   echo "    $TFVARS"
   echo
-  echo "  Edit it to fill in your SSH keys and settings, then re-run this script."
+  echo "  Edit it to fill in your settings, then re-run this script."
   exit 1
 fi
 
 # ─── 3. Install Ansible collections ───────────────────────────────────────────
 info "Installing Ansible collections..."
-ansible-galaxy collection install -r "$ANSIBLE_DIR/requirements.yml" --upgrade -q
+ansible-galaxy collection install -r "$ANSIBLE_DIR/requirements.yml" --upgrade
 
 # ─── 4. Terraform init ────────────────────────────────────────────────────────
 info "Running terraform init..."
@@ -46,11 +46,11 @@ terraform -chdir="$TF_DIR" apply -input=false -auto-approve
 
 # ─── 6. Read outputs ──────────────────────────────────────────────────────────
 PUBLIC_IP="$(terraform -chdir="$TF_DIR" output -raw public_ip)"
-PRIVATE_KEY="$(terraform -chdir="$TF_DIR" output -raw ansible_private_key_path)"
 MANAGED_USER="$(terraform -chdir="$TF_DIR" output -raw managed_user)"
+DEPLOY_KEY="$(terraform -chdir="$TF_DIR" output -raw deploy_private_key_path)"
 
 info "Instance public IP : $PUBLIC_IP"
-info "Private key        : $PRIVATE_KEY"
+info "Deploy key         : $DEPLOY_KEY"
 info "Managed user       : $MANAGED_USER"
 
 # ─── 7. Wait for SSH port to open ─────────────────────────────────────────────
@@ -71,18 +71,31 @@ info "SSH port is open."
 # Give sshd a moment to finish starting after the port accepts connections
 sleep 5
 
-# ─── 8. Run Ansible playbook ──────────────────────────────────────────────────
+# ─── 8. Verify key auth works before handing off to Ansible ──────────────────
+info "Testing SSH key authentication..."
+ssh -i "$DEPLOY_KEY" \
+  -o StrictHostKeyChecking=no \
+  -o BatchMode=yes \
+  -o ConnectTimeout=10 \
+  "ec2-user@$PUBLIC_IP" "echo ok" \
+  || error "SSH key auth failed. The deploy key may not have propagated yet — try re-running the script."
+info "SSH key auth succeeded."
+
+# ─── 9. Run Ansible playbook ──────────────────────────────────────────────────
 info "Running Ansible playbook..."
+ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg" \
+ANSIBLE_ROLES_PATH="$ANSIBLE_DIR/roles" \
 ansible-playbook \
+  --private-key "$DEPLOY_KEY" \
   -i "$ANSIBLE_DIR/inventory/hosts.ini" \
   "$ANSIBLE_DIR/playbooks/configure_ssh.yml"
 
-# ─── 9. Summary ───────────────────────────────────────────────────────────────
+# ─── 10. Summary ──────────────────────────────────────────────────────────────
 echo
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN} Deployment complete${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo "  Public IP  : $PUBLIC_IP"
-echo "  Connect    : ssh -i $PRIVATE_KEY ${MANAGED_USER}@${PUBLIC_IP}"
+echo "  Connect    : ssh -i <your-personal-key> ${MANAGED_USER}@${PUBLIC_IP}"
 echo "  Tear down  : cd terraform && terraform destroy"
 echo

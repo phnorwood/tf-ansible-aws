@@ -23,17 +23,17 @@ output "managed_user" {
   value       = var.managed_user
 }
 
-output "ansible_private_key_path" {
-  description = "Private key path used by Ansible (mirrors the input variable)"
-  value       = var.ansible_private_key_path
+output "deploy_private_key_path" {
+  description = "Path to the generated (no-passphrase) deploy private key used by Ansible"
+  value       = local_sensitive_file.deploy_private_key.filename
 }
 
 output "ssh_command_ec2_user" {
-  description = "SSH command to connect as ec2-user (before Ansible runs)"
-  value       = "ssh -i ${var.ansible_private_key_path} ec2-user@${aws_instance.this.public_ip}"
+  description = "SSH command to connect as ec2-user"
+  value       = "ssh -i ${local_sensitive_file.deploy_private_key.filename} ec2-user@${aws_instance.this.public_ip}"
 }
 
 output "ssh_command_managed_user" {
   description = "SSH command to connect as the managed user (after Ansible runs)"
-  value       = "ssh -i ${var.ansible_private_key_path} ${var.managed_user}@${aws_instance.this.public_ip}"
+  value       = "ssh -i <your-personal-key> ${var.managed_user}@${aws_instance.this.public_ip}"
 }

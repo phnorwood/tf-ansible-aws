@@ -9,5 +9,8 @@ terraform/*.tfplan
 # Ansible generated inventory (written by Terraform)
 ansible/inventory/hosts.ini
 
+# Generated deploy key (no passphrase — never commit)
+.deploy_key
+
 # OS
 .DS_Store

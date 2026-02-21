@@ -3,107 +3,114 @@
 Minimal AWS EC2 instance deployed with Terraform and configured with Ansible.
 
 - **Instance**: t3.micro, Amazon Linux 2023, 8 GB gp3 root volume
-- **Access**: SSH from anywhere (port 22 open to `0.0.0.0/0`)
+- **Access**: SSH from anywhere (port 22 open to `0.0.0.0/0` and `::/0`)
 - **Auth**: SSH public-key only — passwords completely disabled
-- **User**: a dedicated `deploy` user (configurable) is created; `ec2-user` is kept for emergency access
+- **Deploy key**: Terraform auto-generates a passphrase-free ED25519 key pair for Ansible; no personal key required for provisioning
+- **User**: a dedicated `deploy` user is created with your personal public key; `ec2-user` is retained for emergency access
 
 ---
 
 ## Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Terraform | ≥ 1.6 |
+| Tool | Min version |
+|------|-------------|
+| Terraform | ≥ 1.5 |
 | Ansible | ≥ 2.14 |
-| AWS CLI | configured with credentials |
-
-Install the required Ansible collection:
-
-```bash
-ansible-galaxy collection install -r ansible/requirements.yml
-```
+| AWS CLI | any (credentials configured) |
 
 ---
 
-## 1 — Configure Terraform variables
+## Usage
+
+### 1 — Configure variables
 
 ```bash
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
-Edit `terraform/terraform.tfvars` and set:
+Edit `terraform/terraform.tfvars`:
 
 | Variable | Description |
 |----------|-------------|
 | `aws_region` | AWS region (default: `us-east-1`) |
-| `key_name` | Name for the AWS key pair |
-| `ec2_public_key` | Contents of your public key (e.g. `~/.ssh/id_ed25519.pub`) |
-| `managed_user` | Username to create (default: `deploy`) |
-| `managed_user_public_key` | Public key for the managed user |
-| `ansible_private_key_path` | Path to the private key Ansible will use to connect |
+| `key_name` | Name for the AWS key pair (default: `tf-ansible-key`) |
+| `managed_user` | Username to create on the instance (default: `deploy`) |
+| `managed_user_public_key` | Your personal public key — installed for the managed user so you can SSH in after provisioning |
 
-> **Never commit `terraform.tfvars`** — it contains your public key paths and is gitignored.
+> `terraform.tfvars` is gitignored. Never commit it.
 
----
-
-## 2 — Deploy the infrastructure
+### 2 — Deploy
 
 ```bash
-cd terraform
-terraform init
-terraform apply
+./deploy.sh
 ```
 
-Terraform will:
-1. Find the latest Amazon Linux 2023 AMI
-2. Create an EC2 key pair, security group, and t3.micro instance
-3. Write `ansible/inventory/hosts.ini` with the instance's public IP
+The script is fully non-interactive. It will:
 
-Note the output values:
+1. Check that `terraform`, `ansible`, `ansible-galaxy`, `aws`, and `nc` are installed
+2. Run `ansible-galaxy collection install` to pull dependencies
+3. Run `terraform init` and `terraform apply`, which:
+   - Generates a passphrase-free ED25519 deploy key and writes it to `.deploy_key`
+   - Registers the public half as an AWS key pair
+   - Creates the security group and t3.micro EC2 instance
+   - Writes `ansible/inventory/hosts.ini` with the instance IP and key path
+4. Wait for port 22 to open
+5. Verify SSH key auth works
+6. Run `ansible-playbook configure_ssh.yml`, which:
+   - Creates the managed user with a locked system password
+   - Installs your personal public key in the managed user's `authorized_keys`
+   - Deploys a hardened `sshd_config` (passwords, root login, and unused auth methods disabled)
+   - Restarts `sshd`
 
-```
-public_ip = "x.x.x.x"
-ssh_command_ec2_user = "ssh -i ~/.ssh/id_ed25519 ec2-user@x.x.x.x"
-```
-
----
-
-## 3 — Run the Ansible playbook
-
-Wait ~30 seconds for the instance to finish booting, then:
+### 3 — Connect
 
 ```bash
-cd ../ansible
-ansible-playbook playbooks/configure_ssh.yml
-```
-
-The playbook will:
-1. Create the managed user with a locked password
-2. Install the SSH public key in `~/.ssh/authorized_keys`
-3. Deploy a hardened `sshd_config` (passwords, root login, and unused auth methods disabled)
-4. Restart `sshd`
-
----
-
-## 4 — Connect
-
-```bash
-# As the managed user (after Ansible)
+# As the managed user (your personal key)
 ssh -i ~/.ssh/id_ed25519 deploy@<public_ip>
 
-# As ec2-user (emergency / re-running Ansible)
-ssh -i ~/.ssh/id_ed25519 ec2-user@<public_ip>
+# As ec2-user via the generated deploy key (emergency / re-provisioning)
+ssh -i .deploy_key ec2-user@<public_ip>
 ```
 
-Password login will be rejected for all users.
+The exact commands are printed at the end of `deploy.sh` and available as Terraform outputs:
+
+```bash
+cd terraform && terraform output
+```
+
+### 4 — Tear down
+
+```bash
+cd terraform && terraform destroy
+```
 
 ---
 
-## Tear down
+## Project structure
 
-```bash
-cd terraform
-terraform destroy
+```
+.
+├── deploy.sh                        # End-to-end deploy script
+├── .deploy_key                      # Generated deploy private key (gitignored)
+├── terraform/
+│   ├── main.tf                      # Provider, key gen, SG, EC2, inventory file
+│   ├── variables.tf                 # Input variables
+│   ├── outputs.tf                   # Public IP, SSH commands, key path
+│   ├── terraform.tfvars.example     # Copy to terraform.tfvars and fill in
+│   └── terraform.tfvars             # Your values (gitignored)
+└── ansible/
+    ├── ansible.cfg                  # Inventory path, SSH settings
+    ├── requirements.yml             # ansible.posix collection
+    ├── inventory/
+    │   └── hosts.ini                # Generated by Terraform (gitignored)
+    └── playbooks/
+        └── configure_ssh.yml        # Main playbook
+    └── roles/
+        └── ssh_hardening/
+            ├── tasks/main.yml       # User creation, key install, sshd config
+            ├── handlers/main.yml    # Restart sshd on config change
+            └── templates/
+                └── sshd_config.j2  # Hardened sshd_config template
 ```
 
 ---
@@ -113,5 +120,6 @@ terraform destroy
 - `PasswordAuthentication no` and `KbdInteractiveAuthentication no` prevent all interactive password prompts.
 - `PermitRootLogin no` blocks direct root SSH.
 - `AllowUsers deploy ec2-user` restricts SSH to only these two accounts.
-- The managed user's system password is locked (`passwd -l`) so even `su` escalation via password is blocked.
-- To further restrict access, change the security group ingress CIDR to your IP.
+- The managed user's system password is locked so `su` escalation via password is blocked.
+- The deploy key (`.deploy_key`) is generated fresh by Terraform and stored in Terraform state. Use a remote backend with encryption in production.
+- To restrict SSH access by IP, change the security group ingress `cidr_blocks` to your IP.
